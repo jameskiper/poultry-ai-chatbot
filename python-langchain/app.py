@@ -276,7 +276,14 @@ async def editor_node(state: State) -> Command[Literal["writer", "__end__"]]:
         )
     
     print("\n✓ Editor approved - workflow complete")
+    
+    # Save the final approved article to a file
+    with open("final_article.md", "w", encoding="utf-8") as f:
+        f.write(state["latest_draft"])
+        
+    print("Saved final article to final_article.md")
     print("="*50 + "\n")
+    
     return Command(
         update={
             "messages": state["messages"] + [final_message],
