@@ -172,10 +172,13 @@ async def researcher_node(state: State) -> Command[Literal["writer", "__end__"]]
     
     print("\n" + "="*50 + "\n")
     
+    # This must stay inside the function
+    final_message = response["messages"][-1]
+
     return Command(
-        update={"messages": response["messages"]},
+        update={"messages": state["messages"] + [final_message]},
         goto="writer"
-    )
+)
 
 
 async def writer_node(state: State) -> Command[Literal["fact_checker", "__end__"]]:
