@@ -12,292 +12,102 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, START
 from langgraph.graph.message import add_messages
 from langgraph.types import Command
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
 
-
-# Shared state for the workflow graph.
-# This defines the structure of the data that all nodes (agents/tools)
-# will read from and write to.
-#
-# messages:
-#   - Stores the full conversation history (user messages, AI responses,
-#     and tool outputs).
-#   - Annotated with add_messages so that when multiple nodes update the
-#     state, new messages are appended instead of overwriting existing ones.
-#
-# This allows all agents in the workflow to share memory and build
-# on each other's outputs safely.
-
-# Shared state for the workflow graph.
-# This defines the data that all agents in the workflow can access.
-#
-# messages:
-#   - Stores the full conversation history between agents.
-#   - Includes user input, AI responses, and tool outputs.
-#   - The add_messages annotation ensures new messages are appended
-#     instead of overwriting the previous conversation.
-#
-# latest_draft:
-#   - Stores the most recent article created by the writer agent.
-#   - This allows the workflow to print the final article at the end
-#     instead of the editor's approval message.
-#   - Each time the writer runs (including revisions), this value is updated
-#     with the newest version of the article.
-# ================================================================
-# Multi-Agent Content Creation Workflow
-# ================================================================
-#
-# This program demonstrates a multi-agent AI workflow using LangGraph.
-# Each agent performs a specialized task and passes the result to the
-# next agent in the pipeline.
-#
-# Workflow Pipeline:
-#
-# User Input
-#      │
-#      ▼
-# Researcher Agent
-#   - Uses Tavily search tools via MCP
-#   - Gathers external information
-#   - Summarizes key findings
-#
-#      │ Command(goto="writer")
-#      ▼
-# Writer Agent
-#   - Converts research into a structured article
-#   - Formats headings and explanations
-#   - Saves the article into `latest_draft`
-#
-#      │ Command(goto="fact_checker")
-#      ▼
-# Fact-Checker Agent
-#   - Reviews the writer’s content for factual accuracy
-#   - If issues are found → returns "REVISE" and sends the workflow
-#     back to the writer for correction
-#
-#      │ Command(goto="editor")
-#      ▼
-# Editor Agent
-#   - Reviews writing quality, clarity, and structure
-#   - If improvements are needed → returns "REVISE" and sends the
-#     workflow back to the writer
-#   - If the article is acceptable → workflow ends
-#
-#      │
-#      ▼
-# Final Output
-#   - The system prints `latest_draft`, which stores the most recent
-#     article written by the writer agent.
-#   - This ensures the program outputs the finished article instead
-#     of the editor's approval message.
-#
-# Key Concepts Demonstrated:
-#   • Multi-agent orchestration
-#   • LangGraph state sharing
-#   • Tool usage via MCP (Tavily search)
-#   • Conditional routing between agents
-#   • Revision loops using "REVISE"
-#   • Token/context management by storing only final outputs
-#
-# This architecture simulates a real editorial pipeline:
-# Researcher → Writer → Fact-Checker → Editor
-# ================================================================
-
-
-
-# revision_count:
-#   - Tracks how many times the workflow has been sent back for revision.
-#   - Used to prevent infinite loops between the writer and editor.
-#   - If the count reaches the maximum allowed revisions, the workflow ends.
 
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
-    latest_draft: str
-    revision_count: int
 
 
 load_dotenv()
 
-# Planned workflow:
-# User input -> Researcher -> Writer -> Editor
-# The editor will either approve the result and end the workflow,
-# or send it back to the writer for revision.
-#
-# This uses:
-# - shared state to accumulate messages
-# - Command-based handoffs to choose the next node
-# - dynamic routing so the workflow can loop when needed
 
-# Global variable for the researcher agent (will be set in main)
-
-# Global variables for agents (will be set in main)
-researcher_agent = None
-writer_agent = None
-fact_checker_agent = None
-editor_agent = None
+assistant_agent = None
+retriever = None
 
 
-async def researcher_node(state: State) -> Command[Literal["writer", "__end__"]]:
-    """Research node that hands off to writer."""
-    print("\n" + "="*50)
-    print("RESEARCHER NODE")
-    print("="*50)
+def build_retriever():
+    loader = TextLoader("data/chicken_guide.md", encoding="utf-8")
+    documents = loader.load()
+
+    text_splitter = RecursiveCharacterTextSplitter(
+        separators=["\n## ", "\n### ", "\n- ", "\n\n", "\n", " "],
+        chunk_size=400,
+        chunk_overlap=60
+    )
+    splits = text_splitter.split_documents(documents)
+    splits = splits[:12]
+    print(f"Built {len(splits)} chunks")
     
-    # Only pass the initial user message to the researcher
-    response = await researcher_agent.ainvoke({"messages": [state["messages"][0]]})
-    
-    # Debug: Print search results and tool usage
-    print("\n--- Research Results ---")
-    for msg in response["messages"]:
-        # Check for tool calls (AI messages with tool_calls)
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            for tool_call in msg.tool_calls:
-                print(f"\nTool Called: {tool_call.get('name', 'Unknown')}")
-                print(f"Arguments: {tool_call.get('args', {})}")
-        
-        # Check for tool responses (ToolMessage)
-        if msg.type == "tool":
-            print(f"\nTool Response from: {getattr(msg, 'name', 'Unknown Tool')}")
-            content_preview = (
-                str(msg.content)[:500] + "..."
-                if len(str(msg.content)) > 500
-                else str(msg.content)
-            )
-            print(f"Content: {content_preview}")
-        
-        # Print AI responses
-        if msg.type == "ai" and not (hasattr(msg, "tool_calls") and msg.tool_calls):
-            print("\nResearcher Response:")
-            print(f"{msg.content}")
-    
-    print("\n" + "="*50 + "\n")
-    
-    # This must stay inside the function
-    final_message = response["messages"][-1]
+    for i, doc in enumerate(splits[:5], 1):
+        print(f"\n--- Chunk {i} ---")
+        print(doc.page_content[:300])
 
-    return Command(
-        update={"messages": state["messages"] + [final_message]},
-        goto="writer"
-)
-
-
-async def writer_node(state: State) -> Command[Literal["fact_checker", "__end__"]]:
-    """Writer node that hands off to fact-checker."""
-    print("\n" + "="*50)
-    print("WRITER NODE")
-    print("="*50)
-    
-    # this Only pass the researcher's final response to the writer
-    # Pass the full workflow message history so the writer keeps the original topic in focus
-    response = await writer_agent.ainvoke({"messages": state["messages"]})
-    
-    final_message = response["messages"][-1]
-    print(f"\nWriter Output:")
-    print(f"{final_message.content}")
-    print("\n" + "="*50 + "\n")
-
-    # Save the latest writer draft in state and hand off to fact-checker
-    return Command(
-        update={
-            "messages": state["messages"] + [final_message],
-            "latest_draft": final_message.content
-        },
-        goto="fact_checker"
+    embeddings = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        base_url="https://models.github.ai/inference",
+        api_key=os.getenv("GITHUB_TOKEN")
     )
 
+    vectorstore = FAISS.from_documents(splits, embeddings)
+    return vectorstore.as_retriever(search_kwargs={"k": 2})
 
-async def fact_checker_node(state: State) -> Command[Literal["editor", "writer", "__end__"]]:
-    """Fact-checker node that reviews writer output before editor."""
-    print("\n" + "="*50)
-    print("FACT-CHECKER NODE")
-    print("="*50)
+async def assistant_node(state: State) -> Command[Literal["__end__"]]:
+    """Single backyard poultry assistant node with RAG."""
+    global retriever
 
-    # Only pass the writer's response to the fact-checker
-    final_message = state["messages"][-1]
-    response = await fact_checker_agent.ainvoke({"messages": [final_message]})
+    print("\n" + "=" * 50)
+    print("POULTRY ASSISTANT NODE")
+    print("=" * 50)
 
+    user_question = state["messages"][-1].content
+
+    docs = retriever.invoke(user_question)
+    print(f"\nRetrieved {len(docs)} chunks")
+    retrieved_context = "\n\n".join(
+        [doc.page_content for doc in docs]
+    )
+
+    rag_message = HumanMessage(
+        content=f"""
+Answer the question using ONLY the poultry knowledge base below.
+If relevant sections are found, use them directly.
+Do not rely on general knowledge if the answer exists in the knowledge base.
+POULTRY KNOWLEDGE BASE:
+{retrieved_context}
+
+USER QUESTION:
+{user_question}
+"""
+    )
+
+    response = await assistant_agent.ainvoke({"messages": [rag_message]})
     final_message = response["messages"][-1]
-    print("\nFact-Checker Output:")
+
+    print("\nRetrieved Context:")
+    print(retrieved_context)
+
+    print("\nAssistant Output:")
     print(final_message.content)
+    print("\n" + "=" * 50 + "\n")
 
-    if "REVISE" in str(final_message.content):
-        print("\n⚠️ Fact-checker requested REVISION - routing back to writer")
-        print("="*50 + "\n")
-        return Command(
-            update={"messages": state["messages"] + [final_message]},
-            goto="writer"
-        )
-
-    print("\n✓ Fact-check passed - routing to editor")
-    print("="*50 + "\n")
     return Command(
         update={"messages": state["messages"] + [final_message]},
-        goto="editor"
-    )
-    
-async def editor_node(state: State) -> Command[Literal["writer", "__end__"]]:
-    """Editor node that can hand back to writer or end."""
-    print("\n" + "="*50)
-    print("EDITOR NODE")
-    print("="*50)
-    
-    # Only pass the fact-checker's response to the editor
-    final_message = state["messages"][-1]
-    response = await editor_agent.ainvoke({"messages": [final_message]})
-    
-    # Debug: Print editor feedback
-    final_message = response["messages"][-1]
-    print(f"\nEditor Feedback:")
-    print(f"{final_message.content}")
-    
-    # Example logic: if editor finds an error, hand back to writer
-    current_revisions = state.get("revision_count", 0)
-
-    if "REVISE" in str(final_message.content):
-        if current_revisions >= 2:
-            print("\n⚠️ Maximum revision limit reached - ending workflow")
-            print("="*50 + "\n")
-            return Command(
-                update={
-                    "messages": state["messages"] + [final_message],
-                    "revision_count": current_revisions
-                },
-                goto="__end__"
-            )
-
-        print("\n⚠️  Editor requested REVISION - routing back to writer")
-        print("="*50 + "\n")
-        return Command(
-            update={
-                "messages": state["messages"] + [final_message],
-                "revision_count": current_revisions + 1
-            },
-            goto="writer"
-        )
-    
-    print("\n✓ Editor approved - workflow complete")
-    
-    # Save the final approved article to a file
-    with open("final_article.md", "w", encoding="utf-8") as f:
-        f.write(state["latest_draft"])
-        
-    print("Saved final article to final_article.md")
-    print("="*50 + "\n")
-    
-    return Command(
-        update={
-            "messages": state["messages"] + [final_message],
-            "revision_count": current_revisions
-        },
         goto="__end__"
     )
-    
+     
 async def main():
     """Run the multi-agent content creation workflow."""
-    global researcher_agent, writer_agent, fact_checker_agent, editor_agent
-    # ... rest of the code
+    global assistant_agent, retriever
     
-    # Check for required API keys
+    # Check for required API keys to see if they are loaded properly
+    #print("GITHUB_TOKEN:", os.getenv("GITHUB_TOKEN"))
+    #print("TAVILY_API_KEY:", os.getenv("TAVILY_API_KEY"))
+    
     if not os.getenv("GITHUB_TOKEN"):
         print("Error: GITHUB_TOKEN not found.")
         print("Add GITHUB_TOKEN=your-token to a .env file")
@@ -315,36 +125,17 @@ async def main():
         base_url="https://models.github.ai/inference",
         api_key=os.getenv("GITHUB_TOKEN")
     )
+    retriever = build_retriever()
+    print("Retriever loaded from data/chicken_guide.md")
 
     # Load prompts from your local filesystem
-    with open("templates/researcher.json", "r") as f:
-        researcher_data = json.load(f)
-        researcher_prompt = researcher_data.get(
+    with open("templates/assistant.json", "r") as f:
+        assistant_data = json.load(f)
+        assistant_prompt = assistant_data.get(
             "template",
-            "You are a helpful research assistant."
+            "You are a helpful backyard poultry assistant."
         )
 
-    with open("templates/writer.json", "r") as f:
-        writer_data = json.load(f)
-        writer_prompt = writer_data.get(
-            "template",
-            "You are a helpful writing assistant."
-        )
-
-    with open("templates/editor.json", "r") as f:
-        editor_data = json.load(f)
-        editor_prompt = editor_data.get(
-            "template",
-            "You are a helpful editing assistant."
-        )
-    
-    with open("templates/fact_checker.json", "r") as f:
-        fact_checker_data = json.load(f)
-        fact_checker_prompt = fact_checker_data.get(
-            "template",
-            "You are a helpful fact checking assistant."
-        )
-               
     # Get Tavily API key from environment
     tavily_api_key = os.getenv("TAVILY_API_KEY")
     
@@ -366,40 +157,16 @@ async def main():
     
     print(f"Research tools: {[tool.name for tool in researcher_tools]}")
     
-    # Create researcher agent
-    researcher_agent = create_agent(
+    assistant_agent = create_agent(
         llm,
         tools=researcher_tools,
-        system_prompt=researcher_prompt
-    )
-    # Writer and editor don't need tools
-    writer_agent = create_agent(
-        llm, 
-        tools=[],
-        system_prompt=writer_prompt
-    )
-
-    editor_agent = create_agent(
-        llm, 
-        tools=[], 
-        system_prompt=editor_prompt
+        system_prompt=assistant_prompt
     )
     
-    fact_checker_agent = create_agent(
-        llm,
-        tools=[],
-        system_prompt=fact_checker_prompt
-    )
-        
     # Build the Graph without manual edges (Edgeless Handoff)
     builder = StateGraph(State)
-    builder.add_node("researcher", researcher_node)
-    builder.add_node("writer", writer_node)
-    builder.add_node("fact_checker", fact_checker_node)
-    builder.add_node("editor", editor_node)
-    
-    # Only need to set the entry point
-    builder.add_edge(START, "researcher")
+    builder.add_node("assistant", assistant_node)
+    builder.add_edge(START, "assistant")
     graph = builder.compile()
         
     # Run the workflow
@@ -408,52 +175,34 @@ async def main():
     print("Starting Multi-Agent Content Creation Workflow")
     print("="*50 + "\n")
 
-    user_input = input("Enter the topic that you would like to research: ")
+    user_input = input("Ask your backyard poultry question: ")
     initial_message = HumanMessage(content=user_input)
     
-    
     final_state = {
-        "messages": [initial_message],
-        "latest_draft": "",
-        "revision_count": 0
+        "messages": [initial_message]
     }
 
     async for chunk in graph.astream(
         final_state,
         stream_mode="updates"
     ):
-   
         print("\n--- STREAM UPDATE ---")
         
         for node_name, node_update in chunk.items():
             print(f"✓ Agent completed: {node_name}")
             #print(f"Updated keys: {list(node_update.keys())}")
-
-             
+            
             # Merge node updates into final_state
             if isinstance(node_update, dict):
                 final_state.update(node_update)
     
-    
-
-   # result = await graph.ainvoke({
-    #"messages": [initial_message],
-    #"latest_draft": "",
-    #"revision_count": 0
-    # Print the final result of the workflow.
-    # Instead of printing the last message in the conversation history,
-    # we print "latest_draft", which stores the most recent article
-    # produced by the writer agent.
-    # The editor is the final node in the workflow, so the last message
-    # would normally be the editor's approval or revision feedback.
-    # By storing the writer's article in "latest_draft", we can display
-    # the finished content instead of the editor's comments.
-
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("Workflow Complete")
-    print("="*50 + "\n")
-    print("Final Output:")
-    print(final_state.get("latest_draft", "No draft available"))
+    print("=" * 50 + "\n")
     
+    if final_state.get("messages"):
+        last_message = final_state["messages"][-1]
+        print("Final Output:")
+        print(getattr(last_message, "content", "No response available"))
 if __name__ == "__main__":
     asyncio.run(main())
