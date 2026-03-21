@@ -16,6 +16,8 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
+import re
+import html
 
 
 
@@ -63,8 +65,30 @@ def build_retriever():
     # ✅ RETURN BOTH
     return vectorstore, retriever
 
+def clean_wikipedia_text(text: str) -> str:
+    lines = text.splitlines()
+    filtered = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        if not stripped:
+            continue
+        if stripped.startswith("記事ID:"):
+            continue
+        if stripped.startswith("最終更新:"):
+            continue
+        if stripped.startswith("記事サイズ:"):
+            continue
+        if stripped.startswith("URL:"):
+            continue
+
+        filtered.append(line)
+
+    return "\n".join(filtered)
+
 async def wikipedia_search(query: str):
-    """Search Wikipedia and return text result."""
+    """Fetch a cleaner Wikipedia article snippet for poultry fallback."""
     global wiki_tools
 
     search_tool = next(
@@ -72,30 +96,70 @@ async def wikipedia_search(query: str):
         None
     )
 
-    if not search_tool:
-        return "No Wikipedia tool available."
+    article_tool = next(
+        (t for t in wiki_tools if t.name == "get_wikipedia_article"),
+        None
+    )
 
-    # simple topic cleanup for better Wikipedia matching
+    if not search_tool:
+        return "No Wikipedia search tool available."
+
     cleaned_query = query.lower()
 
     if "marek" in cleaned_query:
         wiki_query = "Marek's disease"
+        article_title = "Marek's disease"
+
+    elif "worm" in cleaned_query or "worms" in cleaned_query:
+        wiki_query = "Parasitic worm"
+        article_title = "Parasitic worm"
+
     elif "mite" in cleaned_query or "mites" in cleaned_query:
         wiki_query = "Poultry red mite"
+        article_title = "Poultry red mite"
+
     elif "coccidiosis" in cleaned_query:
         wiki_query = "Coccidiosis"
+        article_title = "Coccidiosis"
+
     else:
         wiki_query = (
             query.replace("What are symptoms of", "")
+                 .replace("How to treat", "")
+                 .replace("How do you treat", "")
+                 .replace("How do I treat", "")
                  .replace("What is", "")
+                 .replace("What are", "")
                  .replace("in chickens", "")
+                 .replace("in poultry", "")
+                 .replace("my chickens", "")
+                 .replace("?", "")
                  .strip()
         )
+        article_title = wiki_query
 
     print(f"\nWikipedia query: {wiki_query}")
+    print(f"Wikipedia article title: {article_title}")
 
     results = await search_tool.ainvoke({"query": wiki_query})
-    return str(results)[:1500]
+    if isinstance(results, list) and len(results) > 0 and isinstance(results[0], dict):
+        results_text = html.unescape(results[0].get("text", str(results)))
+    else:
+        results_text = html.unescape(str(results))
+
+    if article_tool:
+        try:
+            article = await article_tool.ainvoke({"title": article_title})
+            if isinstance(article, list) and len(article) > 0 and isinstance(article[0], dict):
+                article_text = html.unescape(article[0].get("text", str(article)))
+            else:
+                article_text = html.unescape(str(article))
+                article_text = clean_wikipedia_text(article_text)
+            return article_text[:1800]
+        except Exception as e:
+            print(f"Wikipedia article fetch failed: {e}")
+
+    return results_text[:1200]
 
 async def assistant_node(state: State) -> Command[Literal["__end__"]]:
     """Single backyard poultry assistant node with hybrid local RAG + Wikipedia fallback."""
@@ -153,23 +217,24 @@ USER QUESTION:
         print("\nLocal match weak. Falling back to Wikipedia.")
 
         wiki_result = await wikipedia_search(user_question)
+        
+        clean_preview = clean_wikipedia_text(wiki_result)
 
         print("\nWikipedia Result Preview:")
-        print(wiki_result[:500])
+        print(clean_preview[:500])
 
         fallback_message = HumanMessage(
             content=f"""
 The local poultry knowledge base did not contain a strong match.
 
-Use the Wikipedia information below to answer the user's poultry question.
+Use the Wikipedia information below to answer the user's poultry question in English.
+Use only clearly relevant facts from the Wikipedia data.
+Keep the answer beginner-friendly.
+
 
 WIKIPEDIA DATA:
 {wiki_result}
 
-Instructions:
-- Use the Wikipedia data as your primary source
-- Keep the answer beginner-friendly
-- Do not add unrelated information
 
 Format:
 Direct Answer:
