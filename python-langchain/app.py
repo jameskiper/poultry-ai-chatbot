@@ -29,6 +29,8 @@ load_dotenv()
 assistant_agent = None
 retriever = None
 vectorstore = None
+wiki_tools = None
+llm = None
 
 def build_retriever():
     loader = TextLoader("data/chicken_guide.md", encoding="utf-8")
@@ -61,9 +63,43 @@ def build_retriever():
     # ✅ RETURN BOTH
     return vectorstore, retriever
 
+async def wikipedia_search(query: str):
+    """Search Wikipedia and return text result."""
+    global wiki_tools
+
+    search_tool = next(
+        (t for t in wiki_tools if t.name == "search_wikipedia"),
+        None
+    )
+
+    if not search_tool:
+        return "No Wikipedia tool available."
+
+    # simple topic cleanup for better Wikipedia matching
+    cleaned_query = query.lower()
+
+    if "marek" in cleaned_query:
+        wiki_query = "Marek's disease"
+    elif "mite" in cleaned_query or "mites" in cleaned_query:
+        wiki_query = "Poultry red mite"
+    elif "coccidiosis" in cleaned_query:
+        wiki_query = "Coccidiosis"
+    else:
+        wiki_query = (
+            query.replace("What are symptoms of", "")
+                 .replace("What is", "")
+                 .replace("in chickens", "")
+                 .strip()
+        )
+
+    print(f"\nWikipedia query: {wiki_query}")
+
+    results = await search_tool.ainvoke({"query": wiki_query})
+    return str(results)[:1500]
+
 async def assistant_node(state: State) -> Command[Literal["__end__"]]:
-    """Single backyard poultry assistant node with hybrid local RAG + web fallback."""
-    global retriever, vectorstore
+    """Single backyard poultry assistant node with hybrid local RAG + Wikipedia fallback."""
+    global retriever, vectorstore, llm
 
     print("\n" + "=" * 50)
     print("POULTRY ASSISTANT NODE")
@@ -71,7 +107,7 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
 
     user_question = state["messages"][-1].content
 
-    # 1. Search local knowledge base first, with scores
+    # Search local knowledge base first, with scores
     scored_docs = vectorstore.similarity_search_with_score(user_question, k=2)
 
     docs = [doc for doc, score in scored_docs]
@@ -79,7 +115,6 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
 
     print(f"\nLocal search scores: {scores}")
 
-    # 2. Decide whether local match is strong enough
     # Lower score = better match
     use_local_rag = len(scores) > 0 and scores[0] < 1.0
 
@@ -92,7 +127,6 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
 
         rag_message = HumanMessage(
             content=f"""
-Answer the question using the poultry knowledge base below.
 Answer only from the poultry knowledge base below.
 If the answer is not clearly contained in the knowledge base, say you do not have enough local information.
 Do not guess.
@@ -113,17 +147,29 @@ USER QUESTION:
         )
 
         response = await assistant_agent.ainvoke({"messages": [rag_message]})
+        final_message = response["messages"][-1]
 
     else:
-        print("\nLocal match weak. Falling back to web tools.")
-        print("\nUsing WEB fallback tools (Tavily/Wikipedia)")
+        print("\nLocal match weak. Falling back to Wikipedia.")
+
+        wiki_result = await wikipedia_search(user_question)
+
+        print("\nWikipedia Result Preview:")
+        print(wiki_result[:500])
 
         fallback_message = HumanMessage(
             content=f"""
-The local poultry knowledge base did not contain a strong enough match.
+The local poultry knowledge base did not contain a strong match.
 
-Use available research tools such as Tavily or Wikipedia if needed to answer the user's poultry question.
-Give a clear, beginner-friendly, structured answer.
+Use the Wikipedia information below to answer the user's poultry question.
+
+WIKIPEDIA DATA:
+{wiki_result}
+
+Instructions:
+- Use the Wikipedia data as your primary source
+- Keep the answer beginner-friendly
+- Do not add unrelated information
 
 Format:
 Direct Answer:
@@ -136,9 +182,8 @@ USER QUESTION:
 """
         )
 
-        response = await assistant_agent.ainvoke({"messages": [fallback_message]})
-
-    final_message = response["messages"][-1]
+        response = await llm.ainvoke([fallback_message])
+        final_message = response
 
     print("\nAssistant Output:")
     print(final_message.content)
@@ -151,7 +196,7 @@ USER QUESTION:
     
 async def main():
     """Run the multi-agent content creation workflow."""
-    global assistant_agent, retriever, vectorstore
+    global assistant_agent, retriever, vectorstore, wiki_tools, llm
     
     # Check for required API keys to see if they are loaded properly
     #print("GITHUB_TOKEN:", os.getenv("GITHUB_TOKEN"))
@@ -203,6 +248,8 @@ async def main():
     
     # Get tools from the client
     researcher_tools = await research_client.get_tools()
+    global wiki_tools
+    wiki_tools = researcher_tools
     
     print(f"Research tools: {[tool.name for tool in researcher_tools]}")
     
