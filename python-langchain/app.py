@@ -52,7 +52,7 @@ def build_retriever():
         print(f"\n--- Chunk {i} ---")
         print(doc.page_content[:300])
 
-    # ✅ ADD THIS PART (new)
+    # ADD THIS PART (new)
     embeddings = OpenAIEmbeddings(
         model="text-embedding-3-small",
         base_url="https://models.github.ai/inference",
@@ -62,7 +62,7 @@ def build_retriever():
     vectorstore = FAISS.from_documents(splits, embeddings)
     retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
 
-    # ✅ RETURN BOTH
+    #  RETURN BOTH
     return vectorstore, retriever
 
 def clean_wikipedia_text(text: str) -> str:
@@ -154,7 +154,9 @@ async def wikipedia_search(query: str):
                 article_text = html.unescape(article[0].get("text", str(article)))
             else:
                 article_text = html.unescape(str(article))
+                
                 article_text = clean_wikipedia_text(article_text)
+                
             return article_text[:1800]
         except Exception as e:
             print(f"Wikipedia article fetch failed: {e}")
@@ -180,7 +182,16 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
     print(f"\nLocal search scores: {scores}")
 
     # Lower score = better match
-    use_local_rag = len(scores) > 0 and scores[0] < 1.0
+    is_short_followup = len(user_question.split()) <= 4
+
+    use_local_rag = len(scores) > 0 and (scores[0] < 1.0 or is_short_followup)
+
+    recent_history = "\n".join(
+        [
+            f"{msg.__class__.__name__}: {getattr(msg, 'content', '')}"
+            for msg in state["messages"][-4:]
+        ]
+    )
 
     if use_local_rag:
         retrieved_context = "\n\n".join(doc.page_content for doc in docs)
@@ -192,9 +203,13 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
         rag_message = HumanMessage(
             content=f"""
 Answer only from the poultry knowledge base below.
+Use the recent conversation to understand follow-up questions.
 If the answer is not clearly contained in the knowledge base, say you do not have enough local information.
 Do not guess.
 Keep the answer beginner-friendly and structured.
+
+RECENT CONVERSATION:
+{recent_history}
 
 Format:
 Direct Answer:
@@ -217,7 +232,6 @@ USER QUESTION:
         print("\nLocal match weak. Falling back to Wikipedia.")
 
         wiki_result = await wikipedia_search(user_question)
-        
         clean_preview = clean_wikipedia_text(wiki_result)
 
         print("\nWikipedia Result Preview:")
@@ -231,16 +245,17 @@ Use the Wikipedia information below to answer the user's poultry question in Eng
 Use only clearly relevant facts from the Wikipedia data.
 Keep the answer beginner-friendly.
 
-
 WIKIPEDIA DATA:
 {wiki_result}
-
 
 Format:
 Direct Answer:
 Important Details:
 Safety Notes:
 Simple Next Step:
+
+RECENT CONVERSATION:
+{recent_history}
 
 USER QUESTION:
 {user_question}
@@ -336,34 +351,36 @@ async def main():
     print("Starting Multi-Agent Content Creation Workflow")
     print("="*50 + "\n")
 
-    user_input = input("Ask your backyard poultry question: ")
-    initial_message = HumanMessage(content=user_input)
-    
-    final_state = {
-        "messages": [initial_message]
+    conversation_state = {
+        "messages": []
     }
 
-    async for chunk in graph.astream(
-        final_state,
-        stream_mode="updates"
-    ):
-        print("\n--- STREAM UPDATE ---")
+    while True:
+        user_input = input("\nAsk your backyard poultry question (or type 'exit'): ")
         
-        for node_name, node_update in chunk.items():
-            print(f"✓ Agent completed: {node_name}")
-            #print(f"Updated keys: {list(node_update.keys())}")
-            
-            # Merge node updates into final_state
-            if isinstance(node_update, dict):
-                final_state.update(node_update)
+        
+        if user_input.lower() == "exit":
+            print("\nGoodbye 👋")
+            break
+
+        conversation_state["messages"].append(HumanMessage(content=user_input))
+        
+        
+        async for chunk in graph.astream(
+            conversation_state,
+            stream_mode="updates"
+        ):
+            for node_name, node_update in chunk.items():
+                if isinstance(node_update, dict):
+                    conversation_state.update(node_update)
+
+        if conversation_state.get("messages"):
+            last_message = conversation_state["messages"][-1]
+            print("\nAssistant:")
+            print(getattr(last_message, "content", "No response available"))
+        
+
+        
     
-    print("\n" + "=" * 50)
-    print("Workflow Complete")
-    print("=" * 50 + "\n")
-    
-    if final_state.get("messages"):
-        last_message = final_state["messages"][-1]
-        print("Final Output:")
-        print(getattr(last_message, "content", "No response available"))
 if __name__ == "__main__":
     asyncio.run(main())
