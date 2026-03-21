@@ -28,7 +28,7 @@ load_dotenv()
 
 assistant_agent = None
 retriever = None
-
+vectorstore = None
 
 def build_retriever():
     loader = TextLoader("data/chicken_guide.md", encoding="utf-8")
@@ -39,14 +39,16 @@ def build_retriever():
         chunk_size=400,
         chunk_overlap=60
     )
+
     splits = text_splitter.split_documents(documents)
-    splits = splits[:12]
+    splits = splits[:12]  # keep for testing
     print(f"Built {len(splits)} chunks")
-    
+
     for i, doc in enumerate(splits[:5], 1):
         print(f"\n--- Chunk {i} ---")
         print(doc.page_content[:300])
 
+    # ✅ ADD THIS PART (new)
     embeddings = OpenAIEmbeddings(
         model="text-embedding-3-small",
         base_url="https://models.github.ai/inference",
@@ -54,11 +56,14 @@ def build_retriever():
     )
 
     vectorstore = FAISS.from_documents(splits, embeddings)
-    return vectorstore.as_retriever(search_kwargs={"k": 2})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+
+    # ✅ RETURN BOTH
+    return vectorstore, retriever
 
 async def assistant_node(state: State) -> Command[Literal["__end__"]]:
-    """Single backyard poultry assistant node with RAG."""
-    global retriever
+    """Single backyard poultry assistant node with hybrid local RAG + web fallback."""
+    global retriever, vectorstore
 
     print("\n" + "=" * 50)
     print("POULTRY ASSISTANT NODE")
@@ -66,30 +71,74 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
 
     user_question = state["messages"][-1].content
 
-    docs = retriever.invoke(user_question)
-    print(f"\nRetrieved {len(docs)} chunks")
-    retrieved_context = "\n\n".join(
-        [doc.page_content for doc in docs]
-    )
+    # 1. Search local knowledge base first, with scores
+    scored_docs = vectorstore.similarity_search_with_score(user_question, k=2)
 
-    rag_message = HumanMessage(
-        content=f"""
-Answer the question using ONLY the poultry knowledge base below.
-If relevant sections are found, use them directly.
-Do not rely on general knowledge if the answer exists in the knowledge base.
+    docs = [doc for doc, score in scored_docs]
+    scores = [score for doc, score in scored_docs]
+
+    print(f"\nLocal search scores: {scores}")
+
+    # 2. Decide whether local match is strong enough
+    # Lower score = better match
+    use_local_rag = len(scores) > 0 and scores[0] < 1.0
+
+    if use_local_rag:
+        retrieved_context = "\n\n".join(doc.page_content for doc in docs)
+
+        print("\nUsing LOCAL knowledge base")
+        print("\nRetrieved Context:")
+        print(retrieved_context)
+
+        rag_message = HumanMessage(
+            content=f"""
+Answer the question using the poultry knowledge base below.
+Answer only from the poultry knowledge base below.
+If the answer is not clearly contained in the knowledge base, say you do not have enough local information.
+Do not guess.
+Keep the answer beginner-friendly and structured.
+
+Format:
+Direct Answer:
+Important Details:
+Safety Notes:
+Simple Next Step:
+
 POULTRY KNOWLEDGE BASE:
 {retrieved_context}
 
 USER QUESTION:
 {user_question}
 """
-    )
+        )
 
-    response = await assistant_agent.ainvoke({"messages": [rag_message]})
+        response = await assistant_agent.ainvoke({"messages": [rag_message]})
+
+    else:
+        print("\nLocal match weak. Falling back to web tools.")
+        print("\nUsing WEB fallback tools (Tavily/Wikipedia)")
+
+        fallback_message = HumanMessage(
+            content=f"""
+The local poultry knowledge base did not contain a strong enough match.
+
+Use available research tools such as Tavily or Wikipedia if needed to answer the user's poultry question.
+Give a clear, beginner-friendly, structured answer.
+
+Format:
+Direct Answer:
+Important Details:
+Safety Notes:
+Simple Next Step:
+
+USER QUESTION:
+{user_question}
+"""
+        )
+
+        response = await assistant_agent.ainvoke({"messages": [fallback_message]})
+
     final_message = response["messages"][-1]
-
-    print("\nRetrieved Context:")
-    print(retrieved_context)
 
     print("\nAssistant Output:")
     print(final_message.content)
@@ -99,10 +148,10 @@ USER QUESTION:
         update={"messages": state["messages"] + [final_message]},
         goto="__end__"
     )
-     
+    
 async def main():
     """Run the multi-agent content creation workflow."""
-    global assistant_agent, retriever
+    global assistant_agent, retriever, vectorstore
     
     # Check for required API keys to see if they are loaded properly
     #print("GITHUB_TOKEN:", os.getenv("GITHUB_TOKEN"))
@@ -125,7 +174,7 @@ async def main():
         base_url="https://models.github.ai/inference",
         api_key=os.getenv("GITHUB_TOKEN")
     )
-    retriever = build_retriever()
+    vectorstore, retriever = build_retriever()
     print("Retriever loaded from data/chicken_guide.md")
 
     # Load prompts from your local filesystem
