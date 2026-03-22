@@ -16,7 +16,7 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
-import re
+#import re
 import html
 
 
@@ -362,13 +362,30 @@ async def main():
     while True:
         user_input = input("\nAsk your backyard poultry question (or type 'exit'): ")
         
+        lower_input = user_input.lower().strip()
+        
+        if not lower_input:
+            print("\nPlease enter a poultry question or type 'exit'.")
+            continue
+        
+        
+        terminal_commands = [
+            "git ", "python ", "pip ", "cd ", "dir", "ls", "mkdir ", "rm ", "del ",
+            "copy ", "move ", "code ", "venv", ".venv", "powershell", "cmd"
+        ]
+
+       
+
+        if any(lower_input.startswith(cmd) for cmd in terminal_commands):
+            print("\nThat looks like a terminal command, not a poultry question.")
+            print("Run terminal commands in PowerShell or the VS Code terminal.")
+            continue
         
         if user_input.lower() == "exit":
             print("\nGoodbye 👋")
             break
 
         conversation_state["messages"].append(HumanMessage(content=user_input))
-        
         
         async for chunk in graph.astream(
             conversation_state,
