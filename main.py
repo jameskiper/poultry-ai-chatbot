@@ -45,7 +45,6 @@ def build_retriever():
     )
 
     splits = text_splitter.split_documents(documents)
-    splits = splits[:12]  # keep for testing
     print(f"Built {len(splits)} chunks")
 
     for i, doc in enumerate(splits[:5], 1):
@@ -172,6 +171,11 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
     print("=" * 50)
 
     user_question = state["messages"][-1].content
+    # Handle vague follow-up questions like "it", "that"
+    if user_question.lower().strip() in ["it", "that", "this"] or len(user_question.split()) <= 4:
+        if len(state["messages"]) > 1:
+            previous = state["messages"][-2].content
+            user_question = previous + " " + user_question
 
     # Search local knowledge base first, with scores
     scored_docs = vectorstore.similarity_search_with_score(user_question, k=2)
@@ -184,7 +188,7 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
     # Lower score = better match
     is_short_followup = len(user_question.split()) <= 4
 
-    use_local_rag = len(scores) > 0 and (scores[0] < 1.0 or is_short_followup)
+    use_local_rag = len(scores) > 0 and (scores[0] < 1.3 or is_short_followup)
 
     recent_history = "\n".join(
         [

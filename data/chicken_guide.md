@@ -190,3 +190,97 @@ Factors affecting lifespan:
 - Disease prevention
 - Stress levels
 - Predator protection
+
+---
+
+## Marek's Disease
+Marek's disease is a viral disease that affects chickens.
+
+Common symptoms:
+- Weakness or lethargy
+- Paralysis of legs or wings
+- Difficulty walking
+- Weight loss
+- Vision problems or eye changes
+
+Important details:
+- It affects the nervous system
+- Can cause tumors and immune suppression
+- Most common in young chickens
+
+Treatment:
+- There is no cure
+- Provide supportive care (food, water, comfort)
+- Isolate infected birds
+
+Prevention:
+- Vaccination is the best protection
+
+---
+
+## Poultry Red Mites
+Poultry red mites are small parasites that feed on chickens, usually at night.
+
+Common signs:
+- Irritated or restless chickens
+- Pale combs (from blood loss)
+- Drop in egg production
+- Mites hiding in coop cracks
+
+Treatment:
+- Clean and disinfect the coop
+- Replace bedding
+- Use poultry-safe mite treatments
+- Repeat treatment as needed
+
+---
+
+## Coccidiosis
+Coccidiosis is a common intestinal disease in young chickens.
+
+Common symptoms:
+- Bloody or watery droppings
+- Weakness
+- Loss of appetite
+- Puffing up
+- Weight loss
+
+Treatment:
+- Use medicated feed or treatment as directed
+- Keep water clean and available
+- Maintain dry bedding
+
+Prevention:
+- Use medicated starter feed if needed
+- Keep living area clean
+
+---
+
+## Worms in Chickens
+Chickens can develop internal parasites (worms).
+
+Common signs:
+- Weight loss
+- Diarrhea
+- Weakness
+- Reduced egg production
+
+Treatment:
+- Use deworming medication when needed
+- Follow proper dosing instructions
+
+Prevention:
+- Keep coop clean
+- Rotate grazing areas if possible
+
+---
+
+## When to Call a Veterinarian
+Seek professional help if chickens show:
+- Severe weakness or paralysis
+- Not eating or drinking
+- Bloody droppings
+- Rapid weight loss
+- Difficulty breathing
+
+Early action improves chances of recovery.
