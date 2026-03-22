@@ -33,6 +33,7 @@ retriever = None
 vectorstore = None
 wiki_tools = None
 llm = None
+graph = None
 
 def build_retriever():
     loader = TextLoader("data/chicken_guide.md", encoding="utf-8")
@@ -278,35 +279,29 @@ USER QUESTION:
         goto="__end__"
     )
     
-async def main():
-    """Run the multi-agent content creation workflow."""
-    global assistant_agent, retriever, vectorstore, wiki_tools, llm
-    
-    # Check for required API keys to see if they are loaded properly
-    #print("GITHUB_TOKEN:", os.getenv("GITHUB_TOKEN"))
-    #print("TAVILY_API_KEY:", os.getenv("TAVILY_API_KEY"))
-    
+async def initialize_chatbot():
+    """Initialize LLM, retriever, tools, and graph once."""
+    global assistant_agent, retriever, vectorstore, wiki_tools, llm, graph
+
+    if graph is not None:
+        return graph
+
     if not os.getenv("GITHUB_TOKEN"):
-        print("Error: GITHUB_TOKEN not found.")
-        print("Add GITHUB_TOKEN=your-token to a .env file")
-        return
-    
+        raise ValueError("GITHUB_TOKEN not found. Add it to your .env file.")
+
     if not os.getenv("TAVILY_API_KEY"):
-        print("Error: TAVILY_API_KEY not found.")
-        print("Add TAVILY_API_KEY=your-key to a .env file")
-        print("Get your API key from: https://app.tavily.com/")
-        return
-    # Initialize LLM
+        raise ValueError("TAVILY_API_KEY not found. Add it to your .env file.")
+
     llm = ChatOpenAI(
         model="openai/gpt-4o-mini",
         temperature=0.7,
         base_url="https://models.github.ai/inference",
         api_key=os.getenv("GITHUB_TOKEN")
     )
+
     vectorstore, retriever = build_retriever()
     print("Retriever loaded from data/chicken_guide.md")
 
-    # Load prompts from your local filesystem
     with open("templates/assistant.json", "r") as f:
         assistant_data = json.load(f)
         assistant_prompt = assistant_data.get(
@@ -314,10 +309,8 @@ async def main():
             "You are a helpful backyard poultry assistant."
         )
 
-    # Get Tavily API key from environment
     tavily_api_key = os.getenv("TAVILY_API_KEY")
-    
-    # Create MCP client for Tavily
+
     research_client = MultiServerMCPClient({
         "tavily": {
             "transport": "http",
@@ -329,28 +322,32 @@ async def main():
             "args": ["-y", "wikipedia-mcp-server"],
         }
     })
-    
-    # Get tools from the client
+
     researcher_tools = await research_client.get_tools()
-    global wiki_tools
     wiki_tools = researcher_tools
-    
+
     print(f"Research tools: {[tool.name for tool in researcher_tools]}")
-    
+
     assistant_agent = create_agent(
         llm,
         tools=researcher_tools,
         system_prompt=assistant_prompt
     )
-    
-    # Build the Graph without manual edges (Edgeless Handoff)
+
     builder = StateGraph(State)
     builder.add_node("assistant", assistant_node)
     builder.add_edge(START, "assistant")
     graph = builder.compile()
-        
-    # Run the workflow
-        
+
+    return graph
+    
+async def main():
+    """Run the chatbot in CLI mode."""
+    global graph
+
+    load_dotenv()
+    graph = await initialize_chatbot()
+
     print("\n" + "="*50)
     print("Starting Multi-Agent Content Creation Workflow")
     print("="*50 + "\n")
@@ -361,32 +358,29 @@ async def main():
 
     while True:
         user_input = input("\nAsk your backyard poultry question (or type 'exit'): ")
-        
+
         lower_input = user_input.lower().strip()
-        
+
         if not lower_input:
             print("\nPlease enter a poultry question or type 'exit'.")
             continue
-        
-        
+
         terminal_commands = [
             "git ", "python ", "pip ", "cd ", "dir", "ls", "mkdir ", "rm ", "del ",
             "copy ", "move ", "code ", "venv", ".venv", "powershell", "cmd"
         ]
 
-       
-
         if any(lower_input.startswith(cmd) for cmd in terminal_commands):
             print("\nThat looks like a terminal command, not a poultry question.")
             print("Run terminal commands in PowerShell or the VS Code terminal.")
             continue
-        
+
         if user_input.lower() == "exit":
             print("\nGoodbye 👋")
             break
 
         conversation_state["messages"].append(HumanMessage(content=user_input))
-        
+
         async for chunk in graph.astream(
             conversation_state,
             stream_mode="updates"
@@ -399,8 +393,6 @@ async def main():
             last_message = conversation_state["messages"][-1]
             print("\nAssistant:")
             print(getattr(last_message, "content", "No response available"))
-        
-
         
     
 if __name__ == "__main__":
