@@ -22,7 +22,7 @@ HTML = """
         body {
             margin: 0;
             font-family: Arial, sans-serif;
-            background: linear-gradient(rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.25)), url("/static/farm-bg.jpg");
+            background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.4)), url("/static/new%20chicken%20chatbox%20piture.png");
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -34,17 +34,21 @@ HTML = """
         .page {
             max-width: 980px;
             margin: 0 auto;
-            padding: 24px;
+            padding: 24px 24px 8px 24px;
             position: relative;
             z-index: 1;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
 
-        .hero {
+       .hero {
     background: linear-gradient(to bottom, #8ec5e8, #dff4ff);
     border-radius: 20px;
     padding: 24px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+    box-shadow: 0 12px 35px rgba(0,0,0,0.25);
     margin-bottom: 20px;
+    backdrop-filter: blur(4px);
 }
 
         .hero h1 {
@@ -67,13 +71,14 @@ HTML = """
             font-size: 0.95rem;
         }
 
-        .chat-shell {
-            background: rgba(255,255,255,0.97);
-            border-radius: 22px;
-            box-shadow: 0 12px 35px rgba(0,0,0,0.14);
-            overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.75);
-        }
+       .chat-shell {
+    background: rgba(255,255,255,0.85); /* slightly transparent */
+    border-radius: 22px;
+    box-shadow: 0 15px 40px rgba(0,0,0,0.25); /* stronger shadow */
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.6);
+    backdrop-filter: blur(8px); /* 🔥 glass effect */
+}
 
         .chat-header {
             background: linear-gradient(135deg, #5a8f4d, #7fb069);
@@ -94,10 +99,10 @@ HTML = """
 
         .chat-history {
             padding: 20px;
-            max-height: 520px;
+            padding-bottom: 55px;
+            max-height: 45vh;
             overflow-y: auto;
-            background:
-                linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(248,252,245,0.95));
+            background: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(248,252,245,0.95));
         }
 
         .empty-state {
@@ -109,7 +114,7 @@ HTML = """
 
         .message-row {
             display: flex;
-            margin-bottom: 16px;
+            margin-bottom: 10px;
         }
 
         .message-row.user {
@@ -121,10 +126,10 @@ HTML = """
         }
 
         .bubble {
-            max-width: 78%;
-            padding: 14px 16px;
+            max-width: 72%;
+            padding: 11px 14px;
             border-radius: 18px;
-            line-height: 1.45;
+            line-height: 1.35;
             box-shadow: 0 4px 14px rgba(0,0,0,0.08);
             white-space: pre-wrap;
         }
@@ -143,14 +148,14 @@ HTML = """
         }
 
         .label {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
             font-weight: bold;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             opacity: 0.8;
         }
 
         .form-area {
-            padding: 18px;
+            padding: 14px 18px 10px 18px;
             border-top: 1px solid #e5eadf;
             background: #f7fbf3;
         }
@@ -211,6 +216,52 @@ HTML = """
             border: 1px solid #dbe8cf;
         }
 
+        .typing-bubble {
+            min-height: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 11px 14px;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            margin-top: 8px;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #7fb069;
+            animation: typing-bounce 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        #typing {
+            margin-bottom: 16px;
+        }
+
+        @keyframes typing-bounce {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% {
+                transform: translateY(-6px);
+                opacity: 1;
+            }
+        }
+
         @media (max-width: 700px) {
             .page {
                 padding: 14px;
@@ -234,7 +285,7 @@ HTML = """
                 <p>AI-powered poultry assistant using local knowledge and real-time research for accurate answers.</p>
             </p>
             <div class="farm-strip">
-                Ask about symptoms, treatment basics, safe foods, chick care, worms, mites, coccidiosis, and Marek's disease.
+                Ask about symptoms, treatment basics, safe foods, chick care, housing, worms, mites, and coccidiosis.
             </div>
         </div>
 
@@ -244,7 +295,7 @@ HTML = """
                 <p><p>Hybrid AI system combining a local knowledge base with external data sources to deliver reliable poultry guidance.</p></p>
             </div>
 
-            <div class="chat-history">
+            <div id="chat-history" class="chat-history">
                 {% if history %}
                     {% for item in history %}
                         <div class="message-row user">
@@ -254,7 +305,7 @@ HTML = """
                             </div>
                         </div>
 
-                        <div class="message-row bot">
+                        <div class="message-row bot{% if loop.last %} last-bot-message{% endif %}">
                             <div class="bubble">
                                 <div class="label">Poultry Bot</div>
                                 {{ item.bot }}
@@ -267,14 +318,18 @@ HTML = """
                     </div>
                 {% endif %}
                 <div id="typing" class="message-row bot" style="display:none;">
-                    <div class="bubble">
+                    <div class="bubble typing-bubble">
                         <div class="label">Poultry Bot</div>
-                        Poultry Bot is typing...
+                        <div class="typing-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="form-area">
+            <div id="form-area" class="form-area">
                 <form method="post">
                     <div class="input-row">
                         <input type="text" name="message" placeholder="Ask about chickens..." autocomplete="off" required>
@@ -294,13 +349,24 @@ HTML = """
     <script>
         const form = document.querySelector("form");
         const typing = document.getElementById("typing");
+        const chatHistory = document.getElementById("chat-history");
+        const lastBotMessage = document.querySelector(".last-bot-message");
 
         form.addEventListener("submit", function() {
             if (typing) {
                 typing.style.display = "flex";
-                typing.scrollIntoView({ behavior: "smooth" });
+            }
+
+            if (chatHistory) {
+                chatHistory.scrollTop = chatHistory.scrollHeight - 80;
             }
         });
+
+        window.onload = function() {
+            if (lastBotMessage) {
+                lastBotMessage.scrollIntoView({ behavior: "auto", block: "start" });
+            }
+        };
     </script>
 </body>
 </html>
