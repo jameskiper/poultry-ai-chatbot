@@ -281,9 +281,7 @@ HTML = """
     <div class="page">
         <div class="hero">
             <h1>🐔 Poultry AI Chatbot</h1>
-            <p>
-                <p>AI-powered poultry assistant using local knowledge and real-time research for accurate answers.</p>
-            </p>
+            <p>AI-powered poultry assistant using local knowledge and real-time research for accurate answers.</p>
             <div class="farm-strip">
                 Ask about symptoms, treatment basics, safe foods, chick care, housing, worms, mites, and coccidiosis.
             </div>
@@ -292,7 +290,7 @@ HTML = """
         <div class="chat-shell">
             <div class="chat-header">
                 <h2>Backyard Flock Assistant</h2>
-                <p><p>Hybrid AI system combining a local knowledge base with external data sources to deliver reliable poultry guidance.</p></p>
+                <p>Hybrid AI system combining a local knowledge base with external data sources to deliver reliable poultry guidance.</p>
             </div>
 
             <div id="chat-history" class="chat-history">
@@ -350,7 +348,6 @@ HTML = """
         const form = document.querySelector("form");
         const typing = document.getElementById("typing");
         const chatHistory = document.getElementById("chat-history");
-        const lastBotMessage = document.querySelector(".last-bot-message");
 
         form.addEventListener("submit", function() {
             if (typing) {
@@ -363,6 +360,7 @@ HTML = """
         });
 
         window.onload = function() {
+            const lastBotMessage = document.querySelector(".last-bot-message");
             if (lastBotMessage) {
                 lastBotMessage.scrollIntoView({ behavior: "auto", block: "start" });
             }
