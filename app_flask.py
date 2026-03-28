@@ -381,6 +381,7 @@ async def ask_bot(conversation_state):
 
     return conversation_state["messages"][-1].content, conversation_state
 
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     if "history" not in session:
@@ -393,6 +394,27 @@ def home():
             return render_template_string(HTML, history=session["history"])
 
         user_input = request.form.get("message", "").strip()
+        lower_input = user_input.lower()
+
+        POULTRY_KEYWORDS = [
+            "chicken", "chickens", "chick", "chicks", "hen", "hens",
+            "rooster", "roosters", "poultry", "egg", "eggs", "coop",
+            "flock", "brooder", "marek", "coccidiosis", "mites",
+            "worms", "feed", "layer", "broiler", "water",
+            "disease", "symptom", "symptoms", "nest", "nesting"
+        ]
+
+        if user_input and not any(word in lower_input for word in POULTRY_KEYWORDS):
+            session["history"].append({
+                "user": user_input,
+                "bot": (
+                    "Direct Answer: I’m designed specifically for poultry and chicken care questions.\n\n"
+                    "Important Details: This chatbot only answers poultry-related topics.\n\n"
+                    "Simple Next Step: Please ask a chicken-related question."
+                )
+            })
+            session.modified = True
+            return render_template_string(HTML, history=session["history"])
 
         if user_input:
             conversation_state = {"messages": []}
@@ -412,6 +434,7 @@ def home():
             session.modified = True
 
     return render_template_string(HTML, history=session["history"])
+
 
 if __name__ == "__main__":
     app.run(debug=True)

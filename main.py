@@ -374,12 +374,35 @@ async def main():
 
     while True:
         user_input = input("\nAsk your backyard poultry question (or type 'exit'): ")
-
         lower_input = user_input.lower().strip()
-
+        
+        
+        POULTRY_KEYWORDS = [
+            "chicken", "chickens", "chick", "chicks", "hen", "hens",
+            "rooster", "roosters", "poultry", "egg", "eggs", "coop",
+            "flock", "brooder", "marek", "coccidiosis", "mites",
+            "worms", "feed", "layer", "broiler", "water",
+            "disease", "symptom", "symptoms", "nest", "nesting"
+        ]
+        
+        # Exit chatbot even if the user adds extra spaces
+        if lower_input == "exit":
+            print("\nGoodbye!")
+            break
+    
         if not lower_input:
             print("\nPlease enter a poultry question or type 'exit'.")
             continue
+
+        if not any(word in user_input.lower() for word in POULTRY_KEYWORDS):
+            print("\nDirect Answer: I’m designed specifically for poultry and chicken care questions.")
+            print("Important Details: This chatbot only answers poultry-related topics.")
+            print("Simple Next Step: Please ask a chicken-related question.\n")
+            continue
+
+        
+
+        
 
         terminal_commands = [
             "git ", "python ", "pip ", "cd ", "dir", "ls", "mkdir ", "rm ", "del ",
@@ -391,10 +414,8 @@ async def main():
             print("Run terminal commands in PowerShell or the VS Code terminal.")
             continue
         
-        # Exit chatbot even if the user adds extra spaces
-        if lower_input == "exit":
-            print("\nGoodbye 👋")
-            break
+        
+        
 
         conversation_state["messages"].append(HumanMessage(content=user_input))
 
