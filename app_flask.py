@@ -404,11 +404,30 @@ def home():
             "disease", "symptom", "symptoms", "nest", "nesting"
         ]
 
-        if user_input and not any(word in lower_input for word in POULTRY_KEYWORDS):
+        FOLLOWUP_WORDS = ["it", "that", "this", "they", "them", "those", "these"]
+
+        words = lower_input.replace("?", "").replace(".", "").replace(",", "").split()
+
+        has_poultry_history = any(
+            any(keyword in item["user"].lower() for keyword in POULTRY_KEYWORDS)
+            for item in session["history"]
+        )
+
+        is_poultry_question = any(word in lower_input for word in POULTRY_KEYWORDS)
+        has_followup_word = any(word in words for word in FOLLOWUP_WORDS)
+        is_short_followup = len(words) <= 4 and has_poultry_history
+        is_what_about_followup = lower_input.startswith("what about") and has_poultry_history
+
+        if user_input and not (
+            is_poultry_question
+            or has_followup_word
+            or is_short_followup
+            or is_what_about_followup
+        ):
             session["history"].append({
                 "user": user_input,
                 "bot": (
-                    "Direct Answer: I’m designed specifically for poultry and chicken care questions.\n\n"
+                    "Direct Answer: I'm designed specifically for poultry and chicken care questions.\n\n"
                     "Important Details: This chatbot only answers poultry-related topics.\n\n"
                     "Simple Next Step: Please ask a chicken-related question."
                 )

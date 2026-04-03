@@ -394,15 +394,21 @@ async def main():
             print("\nPlease enter a poultry question or type 'exit'.")
             continue
 
-        if not any(word in user_input.lower() for word in POULTRY_KEYWORDS):
-            print("\nDirect Answer: I’m designed specifically for poultry and chicken care questions.")
+        FOLLOWUP_WORDS = ["it", "that", "this", "they", "them", "those", "these"]
+        QUESTION_STARTERS = ["how", "what", "why", "when", "where", "can", "should", "is", "are", "do", "will"]
+
+        words = lower_input.replace("?", "").replace(".", "").replace(",", "").split()
+
+        is_poultry_question = any(word in lower_input for word in POULTRY_KEYWORDS)
+        has_followup_word = any(word in words for word in FOLLOWUP_WORDS)
+        is_short_followup = len(words) <= 6 and len(conversation_state["messages"]) > 0
+        starts_like_followup = len(words) > 0 and words[0] in QUESTION_STARTERS and len(conversation_state["messages"]) > 0
+
+        if not is_poultry_question and not has_followup_word and not is_short_followup and not starts_like_followup:
+            print("\nDirect Answer: I'm designed specifically for poultry and chicken care questions.")
             print("Important Details: This chatbot only answers poultry-related topics.")
             print("Simple Next Step: Please ask a chicken-related question.\n")
             continue
-
-        
-
-        
 
         terminal_commands = [
             "git ", "python ", "pip ", "cd ", "dir", "ls", "mkdir ", "rm ", "del ",
@@ -413,9 +419,6 @@ async def main():
             print("\nThat looks like a terminal command, not a poultry question.")
             print("Run terminal commands in PowerShell or the VS Code terminal.")
             continue
-        
-        
-        
 
         conversation_state["messages"].append(HumanMessage(content=user_input))
 
