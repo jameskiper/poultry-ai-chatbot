@@ -176,12 +176,28 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
 
     user_question = state["messages"][-1].content
 
-    # Handle short follow-up questions by using the previous user message for context
-    if user_question.lower().strip() in ["it", "that", "this"] or len(user_question.split()) <= 4:
-        for msg in reversed(state["messages"][:-1]):
-            if isinstance(msg, HumanMessage):
-                user_question = msg.content + " " + user_question
-                break
+    # Handle vague follow-up questions by reusing the previous user message as context
+    followup_words = ["it", "that", "this", "they", "them", "those", "these"]
+    lower_question = user_question.lower().strip()
+    words = lower_question.replace("?", "").replace(".", "").replace(",", "").split()
+
+    has_followup_word = any(word in words for word in followup_words)
+    is_short_followup = len(words) <= 4
+    is_what_about_followup = lower_question.startswith("what about")
+
+    previous_user_question = None
+    for msg in reversed(state["messages"][:-1]):
+        if isinstance(msg, HumanMessage):
+            previous_user_question = msg.content.strip()
+            break
+
+    if previous_user_question:
+        if has_followup_word:
+            user_question = f"{previous_user_question} {user_question}"
+        elif is_short_followup:
+            user_question = previous_user_question
+        elif is_what_about_followup:
+            user_question = f"{previous_user_question} {user_question}"
 
     # Search local knowledge base first, with scores
     scored_docs = vectorstore.similarity_search_with_score(user_question, k=2)
@@ -192,10 +208,7 @@ async def assistant_node(state: State) -> Command[Literal["__end__"]]:
     print(f"\nLocal search scores: {scores}")
 
     # Lower score = better match
-    is_short_followup = len(user_question.split()) <= 4
-    
-    # Decide: local or fallback
-    use_local_rag = len(scores) > 0 and (scores[0] < 0.9) #or is_short_followup)
+    use_local_rag = len(scores) > 0 and (scores[0] < 0.9)
 
     recent_history = "\n".join(
         [
@@ -389,22 +402,31 @@ async def main():
         if lower_input == "exit":
             print("\nGoodbye!")
             break
-    
+
         if not lower_input:
             print("\nPlease enter a poultry question or type 'exit'.")
             continue
 
         FOLLOWUP_WORDS = ["it", "that", "this", "they", "them", "those", "these"]
-        QUESTION_STARTERS = ["how", "what", "why", "when", "where", "can", "should", "is", "are", "do", "will"]
 
         words = lower_input.replace("?", "").replace(".", "").replace(",", "").split()
 
+        has_poultry_history = any(
+            isinstance(msg, HumanMessage) and any(keyword in msg.content.lower() for keyword in POULTRY_KEYWORDS)
+            for msg in conversation_state["messages"]
+        )
+
         is_poultry_question = any(word in lower_input for word in POULTRY_KEYWORDS)
         has_followup_word = any(word in words for word in FOLLOWUP_WORDS)
-        is_short_followup = len(words) <= 6 and len(conversation_state["messages"]) > 0
-        starts_like_followup = len(words) > 0 and words[0] in QUESTION_STARTERS and len(conversation_state["messages"]) > 0
+        is_short_followup = len(words) <= 4 and has_poultry_history
+        is_what_about_followup = lower_input.startswith("what about") and has_poultry_history
 
-        if not is_poultry_question and not has_followup_word and not is_short_followup and not starts_like_followup:
+        if not (
+            is_poultry_question
+            or has_followup_word
+            or is_short_followup
+            or is_what_about_followup
+        ):
             print("\nDirect Answer: I'm designed specifically for poultry and chicken care questions.")
             print("Important Details: This chatbot only answers poultry-related topics.")
             print("Simple Next Step: Please ask a chicken-related question.\n")
@@ -434,7 +456,8 @@ async def main():
             last_message = conversation_state["messages"][-1]
             print("\nAssistant:")
             print(getattr(last_message, "content", "No response available"))
-        
-  # Run app  
+
+
+# Run app
 if __name__ == "__main__":
     asyncio.run(main())
